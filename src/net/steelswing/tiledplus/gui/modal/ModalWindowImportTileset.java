@@ -13,6 +13,7 @@ import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.SwingUtilities;
 import javax.swing.filechooser.FileNameExtensionFilter;
+import net.steelswing.tiledplus.TiledPlus;
 import net.steelswing.tiledplus.gui.GuiEditorMain;
 import net.steelswing.tiledplus.gui.ModalWindow;
 import net.steelswing.tiledplus.layer.TileSet;
@@ -109,7 +110,7 @@ public class ModalWindowImportTileset extends ModalWindow {
                         frame.requestFocus();
 
                         JFileChooser fileChooser = new JFileChooser();
-                        fileChooser.setCurrentDirectory(new File("."));
+                        fileChooser.setCurrentDirectory(TiledPlus.getInstance().editorMain.editorSession.baseDir);
                         fileChooser.setAcceptAllFileFilterUsed(false);
                         try {
                             FileNameExtensionFilter filter = new FileNameExtensionFilter("Images (*.png)", "png");

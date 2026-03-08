@@ -41,11 +41,16 @@ public class TileLayer extends Layer {
         height = layer.getInt("height");
 
         visible = layer.getBoolean("visible");
-
         buffer = new int[data.length()];
+
         for (int i = 0; i < data.length(); i++) {
-            buffer[i] = data.getInt(i);
+            int raw = data.getInt(i);
+            buffer[i] = raw & 0x1FFFFFFF;
         }
+
+//        for (int i = 0; i < data.length(); i++) {
+//            buffer[i] = data.getInt(i);
+//        }
 //
 //        for (int x = 0; x < width; x++) {
 //            for (int y = 0; y < height; y++) {
@@ -53,7 +58,6 @@ public class TileLayer extends Layer {
 //                buffer[index(x, y)] = worldAtlas.get(id);
 //            }
 //        }
-
         System.out.println(TAG + " Loaded TileLayer " + width + "x" + height + " (" + layer.optString("name") + ")");
     }
 

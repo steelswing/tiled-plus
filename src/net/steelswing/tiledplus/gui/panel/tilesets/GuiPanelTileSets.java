@@ -17,13 +17,19 @@ import imgui.internal.ImGui;
 import imgui.type.ImInt;
 import java.io.FileInputStream;
 import java.util.HashMap;
+import javax.swing.JFileChooser;
+import javax.swing.JFrame;
+import javax.swing.SwingUtilities;
 import net.steelswing.engine.api.util.interfaces.Nullable;
 import net.steelswing.flopslop.render.texture.TextureFilter;
 import net.steelswing.flopslop.render.texture.type.ImageData;
 import net.steelswing.flopslop.render.texture.type.Texture2D;
+import net.steelswing.tiledplus.TiledPlus;
 import net.steelswing.tiledplus.gui.IconManager;
 import net.steelswing.tiledplus.layer.Tile;
 import net.steelswing.tiledplus.layer.TileSet;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.lwjgl.glfw.GLFW;
 
 /**
@@ -110,10 +116,98 @@ public class GuiPanelTileSets extends DockMenuBase {
                 ImGui.setTooltip("Pattern settings");
             }
 
+            ImGui.sameLine();
+            if (ImGui.imageButton(IconManager.FORMATS.PAGE_WHITE_16ICON, iconSize, iconSize)) {
+                try {
+                    SwingUtilities.invokeAndWait(() -> {
+                        JFrame frame = new JFrame();
+                        frame.setAlwaysOnTop(true);
+                        frame.setUndecorated(true);
+                        frame.setLocationRelativeTo(null);
+                        frame.setVisible(true);
+                        frame.toFront();
+                        frame.requestFocus();
+
+                        JFileChooser chooser = new JFileChooser();
+                        chooser.setCurrentDirectory(TiledPlus.getInstance().editorMain.editorSession.baseDir);
+//                        chooser.setAcceptAllFileFilterUsed(false);
+
+                        chooser.setDialogTitle("Save Patterns");
+                        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("JSON files (*.json)", "json"));
+                        chooser.setSelectedFile(new java.io.File("patterns.json"));
+                        try {
+                            int result = chooser.showSaveDialog(null);
+                            if (result == javax.swing.JFileChooser.APPROVE_OPTION) {
+                                java.io.File file = chooser.getSelectedFile();
+                                // Добавляем расширение если не указано
+                                if (!file.getName().toLowerCase().endsWith(".json")) {
+                                    file = new java.io.File(file.getAbsolutePath() + ".json");
+                                }
+                                final java.io.File finalFile = file;
+                                try {
+                                    JSONObject jo = new JSONObject();
+                                    JSONArray sets = new JSONArray();
+                                    for (TileSet tileSet : editor.editorSession.tileSets) {
+                                        sets.put(tileSet.toJSON());
+                                    }
+                                    jo.put("tileSets", sets);
+
+                                    java.nio.file.Files.writeString(finalFile.toPath(), jo.toString(4));
+                                    System.out.println("Saved to: " + finalFile.getAbsolutePath());
+                                } catch (Exception e) {
+                                    e.printStackTrace();
+                                }
+                            }
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                        frame.dispose();
+                    });
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+            if (ImGui.isItemHovered()) {
+                ImGui.setTooltip("Save patterns");
+            }
+            ImGui.sameLine();
+            if (ImGui.imageButton(IconManager.PROJECT.PROJECT_LOAD_16ICON, iconSize, iconSize)) {
+                try {
+                    SwingUtilities.invokeAndWait(() -> {
+                        JFrame frame = new JFrame();
+                        frame.setAlwaysOnTop(true);
+                        frame.setUndecorated(true);
+                        frame.setLocationRelativeTo(null);
+                        frame.setVisible(true);
+                        frame.toFront();
+                        frame.requestFocus();
+                        JFileChooser chooser = new JFileChooser();
+                        chooser.setCurrentDirectory(TiledPlus.getInstance().editorMain.editorSession.baseDir);
+                        chooser.setDialogTitle("Load Patterns");
+                        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("JSON files (*.json)", "json"));
+                        chooser.setSelectedFile(new java.io.File("patterns.json"));
+                        try {
+                            int result = chooser.showOpenDialog(null);  
+                            if (result == javax.swing.JFileChooser.APPROVE_OPTION) {
+                                java.io.File file = chooser.getSelectedFile();
+                                editor.editorSession.loadPatterns(file);
+                            }
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                        frame.dispose();
+                    });
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+            if (ImGui.isItemHovered()) {
+                ImGui.setTooltip("Load patterns");
+            }
+
             ImGui.end();
         }
     }
-    // Добавьте эти методы в класс GuiPanelTileSets
 
     private Tile[][] customPattern = null;
 

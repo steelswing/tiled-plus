@@ -9,14 +9,10 @@ import imgui.ImDrawList;
 import imgui.flag.ImGuiMouseButton;
 import imgui.flag.ImGuiWindowFlags;
 import imgui.internal.ImGui;
-import java.io.File;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import javax.swing.JFileChooser;
-import javax.swing.JFrame;
-import javax.swing.SwingUtilities;
 import net.steelswing.flopslop.render.texture.type.Texture2D;
 import net.steelswing.tiledplus.TiledPlus;
 import net.steelswing.tiledplus.gui.IconManager;
@@ -52,7 +48,7 @@ public class ModalTileSetPatterns extends ModalWindow {
 
     private float leftPanelWidth = 180f;
     private float previewPanelWidth = 180f;
- 
+
     // Геттер вместо него:
     private List<TilePattern> getPatterns() {
         return tileSet != null ? tileSet.patterns : new ArrayList<>();
@@ -104,6 +100,12 @@ public class ModalTileSetPatterns extends ModalWindow {
     }
 
     public void open(TileSet tileSet) {
+        if (this.tileSet != tileSet) {
+            editingPattern = null;
+            editingSelection.clear();
+            texture = null;
+        }
+
         this.tileSet = tileSet;
         this.texture = tileSet.atlasTexture;
 
@@ -253,57 +255,6 @@ public class ModalTileSetPatterns extends ModalWindow {
             }
             if (ImGui.isItemHovered()) {
                 ImGui.setTooltip("Delete pattern");
-            }
-
-            ImGui.sameLine();
-            if (ImGui.imageButton(IconManager.FORMATS.PAGE_WHITE_16ICON, iconSize, iconSize)) {
-                System.out.println(toJSON());
-
-                try {
-                    SwingUtilities.invokeAndWait(() -> {
-                        JFrame frame = new JFrame();
-                        frame.setAlwaysOnTop(true);
-                        frame.setUndecorated(true);
-                        frame.setLocationRelativeTo(null);
-                        frame.setVisible(true);
-                        frame.toFront();
-                        frame.requestFocus();
-
-                        JFileChooser chooser = new JFileChooser();
-                        chooser.setCurrentDirectory(new File("."));
-//                        chooser.setAcceptAllFileFilterUsed(false);
-
-                        chooser.setDialogTitle("Save Patterns");
-                        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("JSON files (*.json)", "json"));
-                        chooser.setSelectedFile(new java.io.File("patterns.json"));
-                        try {
-                            int result = chooser.showSaveDialog(null);
-                            if (result == javax.swing.JFileChooser.APPROVE_OPTION) {
-                                java.io.File file = chooser.getSelectedFile();
-                                // Добавляем расширение если не указано
-                                if (!file.getName().toLowerCase().endsWith(".json")) {
-                                    file = new java.io.File(file.getAbsolutePath() + ".json");
-                                }
-                                final java.io.File finalFile = file;
-                                try {
-                                    String json = toJSON().toString(2); // pretty print
-                                    java.nio.file.Files.writeString(finalFile.toPath(), json);
-                                    System.out.println("Saved to: " + finalFile.getAbsolutePath());
-                                } catch (Exception e) {
-                                    e.printStackTrace();
-                                }
-                            }
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
-                        frame.dispose();
-                    });
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-            if (ImGui.isItemHovered()) {
-                ImGui.setTooltip("Save pattern");
             }
 
             ImGui.sameLine();
@@ -510,69 +461,5 @@ public class ModalTileSetPatterns extends ModalWindow {
             return null;
         }
         return getPatterns().get(index).toTileArray();
-    }
-
-    public org.json.JSONArray toJSON() {
-        org.json.JSONArray array = new org.json.JSONArray();
-        for (TilePattern pattern : getPatterns()) {
-            org.json.JSONObject obj = new org.json.JSONObject();
-            obj.put("name", pattern.name);
-            obj.put("tileSetName", pattern.tileSet != null ? pattern.tileSet.name : "");
-
-            // Находим bounding box для формирования 2D массива
-            if (!pattern.tileCoords.isEmpty()) {
-                int minX = pattern.tileCoords.stream().mapToInt(c -> c[0]).min().getAsInt();
-                int maxX = pattern.tileCoords.stream().mapToInt(c -> c[0]).max().getAsInt();
-                int minY = pattern.tileCoords.stream().mapToInt(c -> c[1]).min().getAsInt();
-                int maxY = pattern.tileCoords.stream().mapToInt(c -> c[1]).max().getAsInt();
-
-                int w = maxX - minX + 1;
-                int h = maxY - minY + 1;
-
-                obj.put("width", w);
-                obj.put("height", h);
-                obj.put("offsetX", minX);
-                obj.put("offsetY", minY);
-
-                // Строим Set для быстрого поиска
-                java.util.Map<String, Integer> coordToTileId = new java.util.HashMap<>();
-                for (int[] c : pattern.tileCoords) {
-                    Tile tile = pattern.tileSet != null ? pattern.tileSet.tiles[pattern.tileSet.index(c[0], c[1])] : null;
-                    coordToTileId.put(c[0] + "," + c[1], tile != null ? tile.id : 0);
-                }
-
-                // 2D массив: 0 = пустая ячейка, иначе tile.id
-                org.json.JSONArray rows = new org.json.JSONArray();
-                for (int row = 0; row < h; row++) {
-                    org.json.JSONArray rowArr = new org.json.JSONArray();
-                    for (int col = 0; col < w; col++) {
-                        String key = (minX + col) + "," + (minY + row);
-                        rowArr.put(coordToTileId.getOrDefault(key, 0));
-                    }
-                    rows.put(rowArr);
-                }
-                obj.put("pattern", rows);
-
-                // Так же храним coords с tile id для точного восстановления произвольных форм
-                org.json.JSONArray coords = new org.json.JSONArray();
-                for (int[] c : pattern.tileCoords) {
-                    Tile tile = pattern.tileSet != null ? pattern.tileSet.tiles[pattern.tileSet.index(c[0], c[1])] : null;
-                    org.json.JSONObject coord = new org.json.JSONObject();
-                    coord.put("x", c[0]);
-                    coord.put("y", c[1]);
-                    coord.put("tileId", tile != null ? tile.id : 0);
-                    coords.put(coord);
-                }
-                obj.put("tiles", coords);
-            } else {
-                obj.put("width", 0);
-                obj.put("height", 0);
-                obj.put("pattern", new org.json.JSONArray());
-                obj.put("tiles", new org.json.JSONArray());
-            }
-
-            array.put(obj);
-        }
-        return array;
     }
 }

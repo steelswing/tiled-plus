@@ -383,8 +383,7 @@ public class GuiPanelCanvas extends DockMenuBase {
                                     if (tile != null) {
                                         float x = imageX + (i * tileWidthZ);
                                         float y = imageY + (j * tileHeightZ);
-                                        drawList.addImage(tile.icon.getTextureId(), x, y, x + tileWidthZ, y + tileHeightZ,
-                                                tile.icon.getMinU(), tile.icon.getMinV(), tile.icon.getMaxU(), tile.icon.getMaxV());
+                                        drawList.addImage(tile.icon.getTextureId(), x, y, x + tileWidthZ, y + tileHeightZ, tile.icon.getMinU(), tile.icon.getMinV(), tile.icon.getMaxU(), tile.icon.getMaxV());
                                     }
                                 }
                             }

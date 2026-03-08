@@ -110,7 +110,36 @@ public class EditorSession {
 
         System.out.println("Loaded layers: " + this.layers.size());
 
+        File file = new File(baseDir, "patterns.json");
+        if (file.exists()) {
+            System.out.println("Load patterns");
+            loadPatterns(file);
+        }
+
         prepareForRender();
+    }
+
+    public void loadPatterns(File file) {
+        try {
+            String content = java.nio.file.Files.readString(file.toPath());
+            JSONObject jo = new JSONObject(content);
+            JSONArray sets = jo.getJSONArray("tileSets");
+
+            for (int i = 0; i < sets.length(); i++) {
+                JSONObject setJson = sets.getJSONObject(i);
+                String tileSetName = setJson.getString("tileSetName");
+
+                // Найти тайлсет по имени
+                tileSets.stream()
+                        .filter(ts -> ts.name.equals(tileSetName))
+                        .findFirst()
+                        .ifPresent(ts -> ts.fromJSON(setJson, tileSets));
+            }
+
+            System.out.println("Loaded from: " + file.getAbsolutePath());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     public static float padding = 0.0f;
