@@ -4,7 +4,6 @@
  */
 package net.steelswing.tiledplus.gui.modal;
 
-import net.steelswing.tiledplus.layer.TilePattern;
 import imgui.ImDrawList;
 import imgui.flag.ImGuiMouseButton;
 import imgui.flag.ImGuiWindowFlags;
@@ -18,6 +17,7 @@ import net.steelswing.tiledplus.TiledPlus;
 import net.steelswing.tiledplus.gui.IconManager;
 import net.steelswing.tiledplus.gui.ModalWindow;
 import net.steelswing.tiledplus.layer.Tile;
+import net.steelswing.tiledplus.layer.TilePattern;
 import net.steelswing.tiledplus.layer.TileSet;
 import org.lwjgl.glfw.GLFW;
 
@@ -29,7 +29,6 @@ import org.lwjgl.glfw.GLFW;
  */
 public class ModalTileSetPatterns extends ModalWindow {
 
-
     private TileSet tileSet;
     private Texture2D texture;
 
@@ -40,6 +39,12 @@ public class ModalTileSetPatterns extends ModalWindow {
     private Set<String> editingSelection = new HashSet<>();
     private float editorZoom = 1.0f;
 
+    /**
+     * Режим редактирования:
+     * false — обычное выделение тайлов паттерна (синяя подсветка)
+     * true — включение/отключение renderLast для тайлов паттерна (красная подсветка)
+     */
+    private boolean renderLastMode = false;
 
     // Drag-выделение в редакторе
     private int dragStartX = -1, dragStartY = -1;
@@ -49,7 +54,9 @@ public class ModalTileSetPatterns extends ModalWindow {
     private float leftPanelWidth = 180f;
     private float previewPanelWidth = 180f;
 
-    // Геттер вместо него:
+    // ─── Редактор коллизий ───────────────────────────────────────────────────
+    public final ModalCollisionEditor collisionEditor = new ModalCollisionEditor();
+
     private List<TilePattern> getPatterns() {
         return tileSet != null ? tileSet.patterns : new ArrayList<>();
     }
@@ -71,19 +78,12 @@ public class ModalTileSetPatterns extends ModalWindow {
         int pw = maxX - minX + 1;
         int ph = maxY - minY + 1;
 
-        // Подгоняем размер тайла чтобы паттерн вписался в квадрат
         float tileSize = Math.min(previewSize / pw, previewSize / ph);
 
-        // Центрируем паттерн в квадрате превью
         float totalW = pw * tileSize;
         float totalH = ph * tileSize;
         float offsetX = startX + (previewSize - totalW) / 2f;
         float offsetY = startY + (previewSize - totalH) / 2f;
-
-        Set<String> coordSet = new HashSet<>();
-        for (int[] c : pattern.tileCoords) {
-            coordSet.add(c[0] + "," + c[1]);
-        }
 
         for (int[] c : pattern.tileCoords) {
             int ix = c[0] - minX;
@@ -94,7 +94,6 @@ public class ModalTileSetPatterns extends ModalWindow {
             if (tile != null && tile.icon != null) {
                 drawList.addImage(tile.icon.getTextureId(), sx, sy, sx + tileSize, sy + tileSize, tile.icon.getMinU(), tile.icon.getMinV(), tile.icon.getMaxU(), tile.icon.getMaxV());
             }
-            // Тонкая сетка на превью
             drawList.addRect(sx, sy, sx + tileSize, sy + tileSize, ImGui.getColorU32(0f, 0f, 0f, 0.3f), 0, 0, 0.5f);
         }
     }
@@ -104,19 +103,30 @@ public class ModalTileSetPatterns extends ModalWindow {
             editingPattern = null;
             editingSelection.clear();
             texture = null;
+            renderLastMode = false;
         }
 
         this.tileSet = tileSet;
         this.texture = tileSet.atlasTexture;
 
-//        editingPattern = null;
+        isDragSelecting = false;
+        selectedPatternIndex = -1;
         editingSelection.clear();
         super.open();
     }
 
+    /**
+     * Переоткрыть окно с уже установленным tileSet (используется при возврате из редактора коллизий).
+     */
+    @Override
+    public void open() {
+        if (tileSet != null) {
+            super.open();
+        }
+    }
+
     @Override
     public void render() {
-
         int width = (int) (TiledPlus.getWidth() * 0.66);
         int height = (int) (TiledPlus.getHeight() * 0.66);
 
@@ -124,7 +134,6 @@ public class ModalTileSetPatterns extends ModalWindow {
             int iconSize = (int) (ImGui.getFontSize() * 1.2f);
             float totalHeight = ImGui.getContentRegionAvailY() - iconSize * 2 - 12;
 
-            float leftWidth = 180f;
             float availWidth = ImGui.getContentRegionAvailX();
             float minPanelWidth = 80f;
 
@@ -142,8 +151,8 @@ public class ModalTileSetPatterns extends ModalWindow {
                         for (int[] c : p.tileCoords) {
                             editingSelection.add(c[0] + "," + c[1]);
                         }
+                        renderLastMode = false;
                     }
-                    // Двойной клик — переименование
                     if (ImGui.isItemHovered() && ImGui.isMouseDoubleClicked(ImGuiMouseButton.Left)) {
                         final TilePattern target = p;
                         TiledPlus.getInstance().editorMain.modalRename.open(p.name, newName -> target.name = newName, () -> {
@@ -175,7 +184,11 @@ public class ModalTileSetPatterns extends ModalWindow {
             float centerWidth = availWidth - leftPanelWidth - previewPanelWidth - 20f;
             if (ImGui.beginChild("##patterns_center", centerWidth, totalHeight, true)) {
                 if (editingPattern != null) {
-                    ImGui.text("Editing: " + editingPattern.name + "  (Shift — add to selection)");
+                    if (!renderLastMode) {
+                        ImGui.text("Editing: " + editingPattern.name + "  (Shift — add to selection)");
+                    } else {
+                        ImGui.textColored(1f, 0.2f, 0.2f, 1f, "RenderLast mode: " + editingPattern.name + "  (Shift — add to selection)");
+                    }
                     ImGui.separator();
                     renderPatternEditor();
                 } else {
@@ -212,7 +225,11 @@ public class ModalTileSetPatterns extends ModalWindow {
                 dl.addRect(previewStartX, previewStartY, previewStartX + previewSize, previewStartY + previewSize, ImGui.getColorU32(0.4f, 0.4f, 0.4f, 1f));
 
                 if (selectedPatternIndex >= 0 && selectedPatternIndex < getPatterns().size() && texture != null && !getPatterns().get(selectedPatternIndex).tileCoords.isEmpty()) {
-                    renderPatternPreviewFixed(getPatterns().get(selectedPatternIndex), previewStartX, previewStartY, previewSize, dl);
+                    TilePattern selPat = getPatterns().get(selectedPatternIndex);
+                    renderPatternPreviewFixed(selPat, previewStartX, previewStartY, previewSize, dl);
+
+                    // Превью коллизий поверх тайлов
+                    renderCollisionPreview(selPat, previewStartX, previewStartY, previewSize, dl);
                 } else {
                     dl.addText(previewStartX + 4f, previewStartY + previewSize / 2f - 7f, ImGui.getColorU32(0.5f, 0.5f, 0.5f, 1f), "(empty)");
                 }
@@ -230,6 +247,7 @@ public class ModalTileSetPatterns extends ModalWindow {
                 selectedPatternIndex = getPatterns().size() - 1;
                 editingPattern = newP;
                 editingSelection.clear();
+                renderLastMode = false;
             }
             if (ImGui.isItemHovered()) {
                 ImGui.setTooltip("New pattern");
@@ -251,6 +269,7 @@ public class ModalTileSetPatterns extends ModalWindow {
                         editingPattern = null;
                         editingSelection.clear();
                     }
+                    renderLastMode = false;
                 }
             }
             if (ImGui.isItemHovered()) {
@@ -258,6 +277,47 @@ public class ModalTileSetPatterns extends ModalWindow {
             }
 
             ImGui.sameLine();
+
+            // ===== КНОПКА renderLast =====
+            if (editingPattern != null) {
+                boolean renderLastMode1 = renderLastMode;
+
+                if (renderLastMode1) {
+                    ImGui.pushStyleColor(imgui.flag.ImGuiCol.Button, 0.6f, 0.1f, 0.1f, 1f);
+                    ImGui.pushStyleColor(imgui.flag.ImGuiCol.ButtonHovered, 0.8f, 0.2f, 0.2f, 1f);
+                }
+                if (ImGui.button("selectRenderLastTiles")) {
+                    renderLastMode = !renderLastMode;
+                }
+                if (renderLastMode1) {
+                    ImGui.popStyleColor(2);
+                }
+                if (ImGui.isItemHovered()) {
+                    ImGui.setTooltip(renderLastMode1 ? "Currently editing renderLast tiles (click to switch back to pattern editing)" : "Switch to renderLast tile selection mode");
+                }
+
+                ImGui.sameLine();
+
+                // ===== КНОПКА РЕДАКТОРА КОЛЛИЗИЙ =====
+                boolean hasCollisions = !editingPattern.collisionRects.isEmpty();
+                if (hasCollisions) {
+                    ImGui.pushStyleColor(imgui.flag.ImGuiCol.Button, 0.1f, 0.45f, 0.1f, 1f);
+                    ImGui.pushStyleColor(imgui.flag.ImGuiCol.ButtonHovered, 0.15f, 0.6f, 0.15f, 1f);
+                }
+                if (ImGui.button("Edit Collision##colbtn")) {
+                    close();
+                    collisionEditor.open(editingPattern, () -> ModalTileSetPatterns.this.open());
+                }
+                if (hasCollisions) {
+                    ImGui.popStyleColor(2);
+                }
+                if (ImGui.isItemHovered()) {
+                    ImGui.setTooltip(hasCollisions ? "Edit collision rects (" + editingPattern.collisionRects.size() + " rect(s))" : "Open collision rect editor for this pattern");
+                }
+
+                ImGui.sameLine();
+            }
+
             float closeW = 80f;
             ImGui.setCursorPosX(ImGui.getCursorPosX() + ImGui.getContentRegionAvailX() - closeW);
             if (ImGui.button("Close", closeW, 0) || ImGui.isKeyPressed(GLFW.GLFW_KEY_ESCAPE)) {
@@ -265,6 +325,38 @@ public class ModalTileSetPatterns extends ModalWindow {
             }
 
             end();
+        }
+    }
+
+    // ─── Превью коллизий в правой панели ─────────────────────────────────────
+
+    private void renderCollisionPreview(TilePattern pattern, float startX, float startY, float previewSize, ImDrawList dl) {
+        if (pattern.collisionRects.isEmpty() || pattern.tileCoords.isEmpty() || tileSet == null) {
+            return;
+        }
+
+        int minTX = pattern.tileCoords.stream().mapToInt(c -> c[0]).min().getAsInt();
+        int maxTX = pattern.tileCoords.stream().mapToInt(c -> c[0]).max().getAsInt();
+        int minTY = pattern.tileCoords.stream().mapToInt(c -> c[1]).min().getAsInt();
+        int maxTY = pattern.tileCoords.stream().mapToInt(c -> c[1]).max().getAsInt();
+
+        float patPixW = (maxTX - minTX + 1) * tileSet.tileWidth;
+        float patPixH = (maxTY - minTY + 1) * tileSet.tileHeight;
+
+        float scaleX = previewSize / patPixW;
+        float scaleY = previewSize / patPixH;
+        float scale = Math.min(scaleX, scaleY);
+
+        float offX = startX + (previewSize - patPixW * scale) / 2f;
+        float offY = startY + (previewSize - patPixH * scale) / 2f;
+
+        for (net.steelswing.tiledplus.layer.CollisionRect r : pattern.collisionRects) {
+            float rx1 = offX + r.x * scale;
+            float ry1 = offY + r.y * scale;
+            float rx2 = rx1 + r.w * scale;
+            float ry2 = ry1 + r.h * scale;
+            dl.addRectFilled(rx1, ry1, rx2, ry2, ImGui.getColorU32(0.2f, 1f, 0.2f, 0.25f));
+            dl.addRect(rx1, ry1, rx2, ry2, ImGui.getColorU32(0.2f, 1f, 0.2f, 0.9f), 0, 0, 1f);
         }
     }
 
@@ -319,7 +411,10 @@ public class ModalTileSetPatterns extends ModalWindow {
                 float hy = cursorPosY + tileY * tileH;
                 drawList.addRect(hx, hy, hx + tileW, hy + tileH, ImGui.getColorU32(1f, 1f, 1f, 0.5f), 0, 0, 1.5f);
 
-                if (ImGui.isMouseClicked(ImGuiMouseButton.Left)) {
+                // В режиме renderLast — кликать можно только по тайлам которые есть в паттерне
+                boolean allowInteraction = !renderLastMode || editingPattern == null || editingSelection.contains(tileX + "," + tileY);
+
+                if (ImGui.isMouseClicked(ImGuiMouseButton.Left) && allowInteraction) {
                     dragStartX = tileX;
                     dragStartY = tileY;
                     isDragSelecting = true;
@@ -332,6 +427,7 @@ public class ModalTileSetPatterns extends ModalWindow {
 
                 if (ImGui.isMouseReleased(ImGuiMouseButton.Left) && isDragSelecting) {
                     isDragSelecting = false;
+
                     int minX = Math.min(dragStartX, dragEndX);
                     int maxX = Math.max(dragStartX, dragEndX);
                     int minY = Math.min(dragStartY, dragEndY);
@@ -339,65 +435,56 @@ public class ModalTileSetPatterns extends ModalWindow {
 
                     boolean isSingleClick = (dragStartX == dragEndX && dragStartY == dragEndY);
 
-                    if (isSingleClick && !shift) {
-                        // Одиночный клик без шифта — если уже выбран, убираем, иначе заменяем выделение
-                        String key = dragStartX + "," + dragStartY;
-                        if (editingSelection.contains(key)) {
-                            editingSelection.clear();
-                        } else {
-                            editingSelection.clear();
-                            editingSelection.add(key);
-                        }
-                    } else if (isSingleClick && shift) {
-                        // Одиночный клик с шифтом — тоглим конкретный тайл
-                        String key = dragStartX + "," + dragStartY;
-                        if (editingSelection.contains(key)) {
-                            editingSelection.remove(key);
-                        } else {
-                            editingSelection.add(key);
-                        }
-                    } else if (shift) {
-                        // Drag с шифтом — тоглим прямоугольник
-                        // Проверяем: все ли тайлы в прямоугольнике уже выбраны?
-                        boolean allSelected = true;
-                        for (int tx = minX; tx <= maxX; tx++) {
-                            for (int ty = minY; ty <= maxY; ty++) {
-                                if (!editingSelection.contains(tx + "," + ty)) {
-                                    allSelected = false;
-                                    break;
-                                }
+                    if (renderLastMode) {
+                        applySelectionToRenderLast(minX, maxX, minY, maxY, isSingleClick, shift);
+                    } else {
+                        if (isSingleClick && !shift) {
+                            String key = dragStartX + "," + dragStartY;
+                            if (editingSelection.contains(key)) {
+                                editingSelection.clear();
+                            } else {
+                                editingSelection.clear();
+                                editingSelection.add(key);
                             }
-                            if (!allSelected) {
-                                break;
+                        } else if (isSingleClick && shift) {
+                            String key = dragStartX + "," + dragStartY;
+                            if (editingSelection.contains(key)) {
+                                editingSelection.remove(key);
+                            } else {
+                                editingSelection.add(key);
                             }
-                        }
-
-                        if (allSelected) {
-                            // Все выбраны — убираем
+                        } else if (shift) {
+                            boolean allSelected = true;
+                            outer:
                             for (int tx = minX; tx <= maxX; tx++) {
                                 for (int ty = minY; ty <= maxY; ty++) {
-                                    editingSelection.remove(tx + "," + ty);
+                                    if (!editingSelection.contains(tx + "," + ty)) {
+                                        allSelected = false;
+                                        break outer;
+                                    }
+                                }
+                            }
+                            for (int tx = minX; tx <= maxX; tx++) {
+                                for (int ty = minY; ty <= maxY; ty++) {
+                                    String k = tx + "," + ty;
+                                    if (allSelected) {
+                                        editingSelection.remove(k);
+                                    } else {
+                                        editingSelection.add(k);
+                                    }
                                 }
                             }
                         } else {
-                            // Не все выбраны — добавляем все
+                            editingSelection.clear();
                             for (int tx = minX; tx <= maxX; tx++) {
                                 for (int ty = minY; ty <= maxY; ty++) {
                                     editingSelection.add(tx + "," + ty);
                                 }
                             }
                         }
-                    } else {
-                        // Drag без шифта — заменяем прямоугольником
-                        editingSelection.clear();
-                        for (int tx = minX; tx <= maxX; tx++) {
-                            for (int ty = minY; ty <= maxY; ty++) {
-                                editingSelection.add(tx + "," + ty);
-                            }
-                        }
+                        syncSelectionToPattern();
                     }
 
-                    syncSelectionToPattern();
                     dragStartX = dragEndX = dragStartY = dragEndY = -1;
                 }
             }
@@ -412,11 +499,17 @@ public class ModalTileSetPatterns extends ModalWindow {
                 float ry1 = cursorPosY + minY * tileH;
                 float rx2 = cursorPosX + (maxX + 1) * tileW;
                 float ry2 = cursorPosY + (maxY + 1) * tileH;
-                drawList.addRectFilled(rx1, ry1, rx2, ry2, ImGui.getColorU32(0.2f, 0.6f, 1f, 0.25f));
-                drawList.addRect(rx1, ry1, rx2, ry2, ImGui.getColorU32(0.2f, 0.6f, 1f, 1f), 0, 0, 1.5f);
+
+                if (renderLastMode) {
+                    drawList.addRectFilled(rx1, ry1, rx2, ry2, ImGui.getColorU32(1f, 0.2f, 0.2f, 0.25f));
+                    drawList.addRect(rx1, ry1, rx2, ry2, ImGui.getColorU32(1f, 0.2f, 0.2f, 1f), 0, 0, 1.5f);
+                } else {
+                    drawList.addRectFilled(rx1, ry1, rx2, ry2, ImGui.getColorU32(0.2f, 0.6f, 1f, 0.25f));
+                    drawList.addRect(rx1, ry1, rx2, ry2, ImGui.getColorU32(0.2f, 0.6f, 1f, 1f), 0, 0, 1.5f);
+                }
             }
 
-            // Рендер выделенных тайлов
+            // Рендер выделенных тайлов паттерна (всегда синие)
             for (String key : editingSelection) {
                 String[] parts = key.split(",");
                 int tx = Integer.parseInt(parts[0]);
@@ -425,6 +518,22 @@ public class ModalTileSetPatterns extends ModalWindow {
                 float sy = cursorPosY + ty * tileH;
                 drawList.addRectFilled(sx, sy, sx + tileW, sy + tileH, ImGui.getColorU32(0.2f, 0.6f, 1f, 0.35f));
                 drawList.addRect(sx, sy, sx + tileW, sy + tileH, ImGui.getColorU32(0.2f, 0.6f, 1f, 1f), 0, 0, 1.5f);
+            }
+
+            // Рендер renderLast тайлов (красные) — поверх синих
+            if (editingPattern != null) {
+                for (String key : editingPattern.renderLastCoords) {
+                    if (!editingSelection.contains(key)) {
+                        continue;
+                    }
+                    String[] parts = key.split(",");
+                    int tx = Integer.parseInt(parts[0]);
+                    int ty = Integer.parseInt(parts[1]);
+                    float sx = cursorPosX + tx * tileW;
+                    float sy = cursorPosY + ty * tileH;
+                    drawList.addRectFilled(sx, sy, sx + tileW, sy + tileH, ImGui.getColorU32(1f, 0.2f, 0.2f, 0.35f));
+                    drawList.addRect(sx, sy, sx + tileW, sy + tileH, ImGui.getColorU32(1f, 0.2f, 0.2f, 1f), 0, 0, 1.5f);
+                }
             }
 
             // Сетка
@@ -442,6 +551,62 @@ public class ModalTileSetPatterns extends ModalWindow {
         }
     }
 
+    /**
+     * Применяет drag-выделение к renderLast, но только для тайлов из паттерна.
+     */
+    private void applySelectionToRenderLast(int minX, int maxX, int minY, int maxY, boolean isSingleClick, boolean shift) {
+        if (editingPattern == null) {
+            return;
+        }
+        Set<String> renderLast = editingPattern.renderLastCoords;
+
+        List<String> candidates = new ArrayList<>();
+        for (int tx = minX; tx <= maxX; tx++) {
+            for (int ty = minY; ty <= maxY; ty++) {
+                String key = tx + "," + ty;
+                if (editingSelection.contains(key)) {
+                    candidates.add(key);
+                }
+            }
+        }
+
+        if (candidates.isEmpty()) {
+            return;
+        }
+
+        if (isSingleClick && !shift) {
+            String key = candidates.get(0);
+            if (renderLast.contains(key)) {
+                renderLast.remove(key);
+            } else {
+                renderLast.add(key);
+            }
+        } else if (isSingleClick && shift) {
+            String key = candidates.get(0);
+            if (renderLast.contains(key)) {
+                renderLast.remove(key);
+            } else {
+                renderLast.add(key);
+            }
+        } else if (shift) {
+            boolean allSelected = candidates.stream().allMatch(renderLast::contains);
+            for (String key : candidates) {
+                if (allSelected) {
+                    renderLast.remove(key);
+                } else {
+                    renderLast.add(key);
+                }
+            }
+        } else {
+            for (int tx = minX; tx <= maxX; tx++) {
+                for (int ty = minY; ty <= maxY; ty++) {
+                    renderLast.remove(tx + "," + ty);
+                }
+            }
+            renderLast.addAll(candidates);
+        }
+    }
+
     private void syncSelectionToPattern() {
         if (editingPattern == null) {
             return;
@@ -451,6 +616,7 @@ public class ModalTileSetPatterns extends ModalWindow {
             String[] parts = key.split(",");
             editingPattern.tileCoords.add(new int[]{Integer.parseInt(parts[0]), Integer.parseInt(parts[1])});
         }
+        editingPattern.renderLastCoords.retainAll(editingSelection);
     }
 
     /**

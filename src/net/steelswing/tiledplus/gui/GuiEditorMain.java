@@ -57,6 +57,10 @@ public class GuiEditorMain implements Renderable {
 
     protected Runnable onMainThread;
 
+    private static final String LAST_FILE_PREF_KEY = "last_file_path";
+    private static final java.util.prefs.Preferences PREFS =
+            java.util.prefs.Preferences.userNodeForPackage(GuiEditorMain.class);
+
 
     public GuiEditorMain() {
         dockPanels.put(GuiPanelLayers.class, guiPanelLayers = new GuiPanelLayers(this));
@@ -78,50 +82,60 @@ public class GuiEditorMain implements Renderable {
             if (ImGui.beginMenu("File")) {
                 if (ImGui.menuItem("Load")) {
                     try {
-                        try {
-                            SwingUtilities.invokeAndWait(() -> {
-                                JFrame frame = new JFrame();
-                                frame.setAlwaysOnTop(true);
-                                frame.setUndecorated(true);
-                                frame.setLocationRelativeTo(null);
-                                frame.setVisible(true);
-                                frame.toFront();
-                                frame.requestFocus();
+                        SwingUtilities.invokeAndWait(() -> {
+                            JFrame frame = new JFrame();
+                            frame.setAlwaysOnTop(true);
+                            frame.setUndecorated(true);
+                            frame.setLocationRelativeTo(null);
+                            frame.setVisible(true);
+                            frame.toFront();
+                            frame.requestFocus();
 
-                                JFileChooser fileChooser = new JFileChooser();
-                                fileChooser.setCurrentDirectory(new File("."));
-                                fileChooser.setAcceptAllFileFilterUsed(false);
-                                try {
-                                    FileNameExtensionFilter filter = new FileNameExtensionFilter("Tiled JSON (*.json)", "json");
-                                    fileChooser.setFileFilter(filter);
+                            JFileChooser fileChooser = new JFileChooser();
 
-                                    int result = fileChooser.showOpenDialog(null);
-
-                                    switch (result) {
-                                        case JFileChooser.APPROVE_OPTION:
-                                            File selectedFile = fileChooser.getSelectedFile();
-                                            onMainThread = () -> {
-                                                try {
-                                                    editorSession.load(selectedFile.getParentFile(), new JSONObject(new String(Files.readAllBytes(selectedFile.toPath()))));
-                                                } catch (Throwable ex) {
-                                                    System.getLogger(GuiEditorMain.class.getName()).log(System.Logger.Level.ERROR, (String) null, ex);
-                                                }
-                                            };
-                                            break;
-                                        case JFileChooser.CANCEL_OPTION:
-                                            break;
-                                        case JFileChooser.ERROR_OPTION:
-                                            break;
-                                    }
-                                } catch (Exception e) {
-                                    e.printStackTrace();
+                            // Восстанавливаем последний путь
+                            String lastPath = PREFS.get(LAST_FILE_PREF_KEY, null);
+                            if (lastPath != null) {
+                                File lastFile = new File(lastPath);
+                                if (lastFile.exists()) {
+                                    fileChooser.setSelectedFile(lastFile);
+                                    fileChooser.setCurrentDirectory(lastFile.getParentFile());
+                                } else {
+                                    fileChooser.setCurrentDirectory(new File("."));
                                 }
-                                frame.dispose();
-                            });
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
+                            } else {
+                                fileChooser.setCurrentDirectory(new File("."));
+                            }
 
+                            fileChooser.setAcceptAllFileFilterUsed(false);
+                            FileNameExtensionFilter filter = new FileNameExtensionFilter("Tiled JSON (*.json)", "json");
+                            fileChooser.setFileFilter(filter);
+
+                            int result = fileChooser.showOpenDialog(null);
+                            switch (result) {
+                                case JFileChooser.APPROVE_OPTION:
+                                    File selectedFile = fileChooser.getSelectedFile();
+                                    // Сохраняем путь для следующего раза
+                                    PREFS.put(LAST_FILE_PREF_KEY, selectedFile.getAbsolutePath());
+                                    onMainThread = () -> {
+                                        try {
+                                            editorSession.load(
+                                                    selectedFile.getParentFile(),
+                                                    new JSONObject(new String(Files.readAllBytes(selectedFile.toPath())))
+                                            );
+                                        } catch (Throwable ex) {
+                                            System.getLogger(GuiEditorMain.class.getName())
+                                                    .log(System.Logger.Level.ERROR, (String) null, ex);
+                                        }
+                                    };
+                                    break;
+                                case JFileChooser.CANCEL_OPTION:
+                                case JFileChooser.ERROR_OPTION:
+                                    break;
+                            }
+
+                            frame.dispose();
+                        });
                     } catch (Throwable e) {
                         e.printStackTrace();
                     }
@@ -159,6 +173,7 @@ public class GuiEditorMain implements Renderable {
         modalImportTileSets.render();
         modalDelete.render();
         modalTileSetPatterns.render();
+        modalTileSetPatterns.collisionEditor.render();
 
         modalRename.render();
     }
